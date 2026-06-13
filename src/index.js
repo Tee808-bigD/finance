@@ -20,7 +20,13 @@ const PORT = process.env.PORT || 3978;
 
 // ==================== MIDDLEWARE ====================
 
-app.use(cors());
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'x-api-key'],
+  credentials: false
+}));
+
 app.use(express.json());
 
 const apiLimiter = rateLimit({
@@ -46,30 +52,42 @@ const authenticateAdmin = (req, res, next) => {
 
 // ==================== DATABASE ====================
 
+if (!process.env.MONGODB_URI) {
+  console.error('❌ CRITICAL: MONGODB_URI environment variable is not set');
+  process.exit(1);
+}
+
 mongoose.connect(process.env.MONGODB_URI)
   .then(() => console.log('✅ Connected to MongoDB'))
-  .catch(err => console.error('❌ MongoDB connection error:', err));
+  .catch(err => {
+    console.error('❌ MongoDB connection error:', err.message);
+    process.exit(1);
+  });
 
 async function seedDatabase() {
-  const policyCount = await Policy.countDocuments();
-  if (policyCount === 0) {
-    console.log('🌱 Seeding initial policies...');
-    await Policy.insertMany([
-      { ruleName: 'Max Item Limit', threshold: 5000, category: 'general', description: 'Expenses exceeding $5,000 are strictly prohibited without board approval.', severity: 'HIGH' },
-      { ruleName: 'Pre-Approval Threshold', threshold: 2000, category: 'travel', description: 'Travel expenses > $2,000 require pre-approval from the department head.', severity: 'MEDIUM' },
-      { ruleName: 'Vendor Approval', category: 'vendors', description: 'All vendors must be on the approved corporate list.', severity: 'MEDIUM' },
-      { ruleName: 'Receipt Requirement', threshold: 25, category: 'documentation', description: 'Digital receipts are required for all expenses over $25.', severity: 'LOW' }
-    ]);
-  }
-  const expenseCount = await Expense.countDocuments();
-  if (expenseCount === 0) {
-    console.log('🌱 Seeding initial expenses...');
-    await Expense.insertMany([
-      { submitter: 'john.doe@company.com', amount: 1500, vendor: 'Acme Corp', category: 'travel', approved: false },
-      { submitter: 'jane.smith@company.com', amount: 2500, vendor: 'Unapproved Vendor', category: 'conference', approved: false },
-      { submitter: 'bob.johnson@company.com', amount: 150, vendor: 'Office Supplies Ltd', category: 'supplies', approved: true },
-      { submitter: 'alice.williams@company.com', amount: 8000, vendor: 'TechVendor Inc', category: 'software', approved: false }
-    ]);
+  try {
+    const policyCount = await Policy.countDocuments();
+    if (policyCount === 0) {
+      console.log('🌱 Seeding initial policies...');
+      await Policy.insertMany([
+        { ruleName: 'Max Item Limit', threshold: 5000, category: 'general', description: 'Expenses exceeding $5,000 are strictly prohibited without board approval.', severity: 'HIGH' },
+        { ruleName: 'Pre-Approval Threshold', threshold: 2000, category: 'travel', description: 'Travel expenses > $2,000 require pre-approval from the department head.', severity: 'MEDIUM' },
+        { ruleName: 'Vendor Approval', category: 'vendors', description: 'All vendors must be on the approved corporate list.', severity: 'MEDIUM' },
+        { ruleName: 'Receipt Requirement', threshold: 25, category: 'documentation', description: 'Digital receipts are required for all expenses over $25.', severity: 'LOW' }
+      ]);
+    }
+    const expenseCount = await Expense.countDocuments();
+    if (expenseCount === 0) {
+      console.log('🌱 Seeding initial expenses...');
+      await Expense.insertMany([
+        { submitter: 'john.doe@company.com', amount: 1500, vendor: 'Acme Corp', category: 'travel', approved: false },
+        { submitter: 'jane.smith@company.com', amount: 2500, vendor: 'Unapproved Vendor', category: 'conference', approved: false },
+        { submitter: 'bob.johnson@company.com', amount: 150, vendor: 'Office Supplies Ltd', category: 'supplies', approved: true },
+        { submitter: 'alice.williams@company.com', amount: 8000, vendor: 'TechVendor Inc', category: 'software', approved: false }
+      ]);
+    }
+  } catch (error) {
+    console.error('❌ Database seeding error:', error.message);
   }
 }
 seedDatabase();
@@ -221,7 +239,7 @@ app.get('/', (req, res) => {
       <h1>Finance Intelligence Agent</h1>
       <p>Send a finance or compliance command to the local agent API.</p>
       <form id="message-form">
-        <input id="message-input" value="review expense reports" autocomplete="off" aria-label="Agent command">
+        <input id="message-input" type="text" placeholder="Enter command..." value="review expense reports" autocomplete="off" required>
         <button id="send-button" type="submit">Send</button>
       </form>
       <div class="chips" aria-label="Example commands">
@@ -249,10 +267,15 @@ app.get('/', (req, res) => {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ text })
         });
+        
+        if (!response.ok) {
+          throw new Error(\`Server error: \${response.status} \${response.statusText}\`);
+        }
+        
         const data = await response.json();
         output.textContent = JSON.stringify(data, null, 2);
       } catch (error) {
-        output.textContent = error.message;
+        output.textContent = \`❌ Error: \${error.message}\`;
       } finally {
         sendButton.disabled = false;
       }
@@ -279,30 +302,43 @@ app.get('/health', (req, res) => {
 });
 
 app.post('/api/messages', async (req, res) => {
-  const { text } = req.body;
-  if (!text || typeof text !== 'string') {
-    return res.status(400).json({ type: 'message', text: 'Invalid input. Please provide a text command.' });
-  }
   try {
-    if (text.toLowerCase().includes('review expense') || text.toLowerCase().includes('expense reports')) {
-      res.json(await handleReviewExpenses());
-    } else if (text.toLowerCase().includes('compliance') || text.toLowerCase().includes('policy')) {
-      res.json(await handleComplianceCheck());
-    } else if (text.toLowerCase().includes('anomal') || text.toLowerCase().includes('unusual')) {
-      res.json(await handleAnomalyDetection());
-    } else if (text.toLowerCase().includes('optimize') || text.toLowerCase().includes('budget')) {
-      res.json(await handleBudgetOptimization());
-    } else if (text.toLowerCase().includes('report')) {
-      res.json(await handleGenerateReport());
+    const { text } = req.body;
+    
+    if (!text || typeof text !== 'string') {
+      return res.status(400).json({ type: 'message', text: 'Invalid input. Please provide a text command.' });
+    }
+
+    const lowerText = text.toLowerCase();
+    
+    if (lowerText.includes('review expense') || lowerText.includes('expense reports')) {
+      const result = await handleReviewExpenses();
+      return res.json(result);
+    } else if (lowerText.includes('compliance') || lowerText.includes('policy')) {
+      const result = await handleComplianceCheck();
+      return res.json(result);
+    } else if (lowerText.includes('anomal') || lowerText.includes('unusual')) {
+      const result = await handleAnomalyDetection();
+      return res.json(result);
+    } else if (lowerText.includes('optimize') || lowerText.includes('budget')) {
+      const result = await handleBudgetOptimization();
+      return res.json(result);
+    } else if (lowerText.includes('report')) {
+      const result = await handleGenerateReport();
+      return res.json(result);
     } else {
-      res.json({
+      return res.json({
         type: 'message',
-        text: 'I can help you with:\n• Review expense reports\n• Check policy compliance\n• Identify spending anomalies\n• Optimize budget (NVIDIA cuOpt)\n• Generate compliance reports'
+        text: 'I can help you with:\n• Review expense reports\n• Check policy compliance\n• Identify spending anomalies\n• Optimize budget\n• Generate compliance reports'
       });
     }
   } catch (error) {
-    console.error('[ERROR]', error);
-    res.status(500).json({ type: 'message', text: 'An internal error occurred.' });
+    console.error('[ERROR] /api/messages:', error);
+    return res.status(500).json({ 
+      type: 'message', 
+      text: `An error occurred: ${error.message}`,
+      error: process.env.NODE_ENV === 'production' ? undefined : error.stack
+    });
   }
 });
 
@@ -315,21 +351,30 @@ app.post('/api/expenses', authenticateAdmin, async (req, res) => {
     const expense = await Expense.create({ submitter, amount, vendor, category, approved });
     checkAndEmitViolation(expense);
     res.status(201).json(expense);
-  } catch (e) { res.status(400).json({ error: 'Invalid data provided' }); }
+  } catch (e) { 
+    console.error('[ERROR] /api/expenses:', e);
+    res.status(400).json({ error: 'Invalid data provided' }); 
+  }
 });
 
 app.get('/api/expenses', authenticateAdmin, async (req, res) => {
   try {
     const expenses = await Expense.find().lean();
     res.json(expenses);
-  } catch (e) { res.status(500).json({ error: 'Error fetching expenses' }); }
+  } catch (e) { 
+    console.error('[ERROR] /api/expenses GET:', e);
+    res.status(500).json({ error: 'Error fetching expenses' }); 
+  }
 });
 
 app.get('/api/policies', authenticateAdmin, async (req, res) => {
   try {
     const policies = await Policy.find().lean();
     res.json(policies);
-  } catch (e) { res.status(500).json({ error: 'Error fetching policies' }); }
+  } catch (e) { 
+    console.error('[ERROR] /api/policies:', e);
+    res.status(500).json({ error: 'Error fetching policies' }); 
+  }
 });
 
 app.get('/api/analytics', authenticateAdmin, async (req, res) => {
@@ -338,94 +383,149 @@ app.get('/api/analytics', authenticateAdmin, async (req, res) => {
       { $group: { _id: null, totalAmount: { $sum: '$amount' }, count: { $sum: 1 } } }
     ]);
     res.json(total[0] || { totalAmount: 0, count: 0 });
-  } catch (e) { res.status(500).json({ error: 'Error calculating analytics' }); }
+  } catch (e) { 
+    console.error('[ERROR] /api/analytics:', e);
+    res.status(500).json({ error: 'Error calculating analytics' }); 
+  }
 });
 
 async function handleReviewExpenses() {
-  const expenses = await Expense.find().lean();
-  const policies = await Policy.find().lean();
-  const violations = [];
-  const reviewPromises = expenses.map(async (expense) => {
-    const limitPolicy = policies.find(p => p.ruleName === 'Max Item Limit');
-    if (limitPolicy && expense.amount > limitPolicy.threshold) {
-      const citation = await nvidiaClient.queryRAG('amount limit', policies);
-      return { id: expense._id, issue: `Amount $${expense.amount} exceeds limit $${limitPolicy.threshold}`, citation, severity: limitPolicy.severity };
+  try {
+    const expenses = await Expense.find().lean();
+    const policies = await Policy.find().lean();
+    
+    if (policies.length === 0) {
+      return createAdaptiveCard('Expense Review Summary', [
+        { label: 'Status', value: 'No policies defined' }
+      ]);
     }
-    const preAppPolicy = policies.find(p => p.ruleName === 'Pre-Approval Threshold');
-    if (preAppPolicy && expense.amount > preAppPolicy.threshold && !expense.approved) {
-      const citation = await nvidiaClient.queryRAG('pre-approval', policies);
-      return { id: expense._id, issue: `Pre-approval required for $${expense.amount}`, citation, severity: preAppPolicy.severity };
-    }
-    return null;
-  });
-  const results = await Promise.all(reviewPromises);
-  const filteredViolations = results.filter(v => v !== null);
-  const facts = [
-    { label: 'Total Reviewed', value: expenses.length.toString() },
-    { label: 'Violations', value: filteredViolations.length.toString() },
-    ...filteredViolations.map(v => ({ label: `Expense ${v.id.toString().slice(-4)}`, value: `${v.issue} | ${v.citation}` }))
-  ];
-  return createAdaptiveCard('Expense Review Summary', facts, filteredViolations.length > 0 ? 'Attention' : 'Success');
+
+    const reviewPromises = expenses.map(async (expense) => {
+      const limitPolicy = policies.find(p => p.ruleName === 'Max Item Limit');
+      if (limitPolicy && expense.amount > limitPolicy.threshold) {
+        const citation = await nvidiaClient.queryRAG('amount limit', policies);
+        return { id: expense._id, issue: `Amount $${expense.amount} exceeds limit $${limitPolicy.threshold}`, citation, severity: limitPolicy.severity };
+      }
+      const preAppPolicy = policies.find(p => p.ruleName === 'Pre-Approval Threshold');
+      if (preAppPolicy && expense.amount > preAppPolicy.threshold && !expense.approved) {
+        const citation = await nvidiaClient.queryRAG('pre-approval', policies);
+        return { id: expense._id, issue: `Pre-approval required for $${expense.amount}`, citation, severity: preAppPolicy.severity };
+      }
+      return null;
+    });
+
+    const results = await Promise.all(reviewPromises);
+    const filteredViolations = results.filter(v => v !== null);
+    const facts = [
+      { label: 'Total Reviewed', value: expenses.length.toString() },
+      { label: 'Violations', value: filteredViolations.length.toString() },
+      ...filteredViolations.slice(0, 5).map(v => ({ label: `Expense ${v.id.toString().slice(-4)}`, value: `${v.issue} | ${v.citation}` }))
+    ];
+    return createAdaptiveCard('Expense Review Summary', facts, filteredViolations.length > 0 ? 'Attention' : 'Success');
+  } catch (error) {
+    console.error('[ERROR] handleReviewExpenses:', error);
+    throw error;
+  }
 }
 
 async function handleComplianceCheck() {
-  const expenses = await Expense.find().lean();
-  const policies = await Policy.find().lean();
-  const limitPolicy = policies.find(p => p.ruleName === 'Max Item Limit');
-  const compliantCount = expenses.filter(e => limitPolicy ? e.amount <= limitPolicy.threshold : true).length;
-  const facts = [
-    { label: 'Total Expenses', value: expenses.length.toString() },
-    { label: 'Compliant', value: compliantCount.toString() },
-    { label: 'Compliance Rate', value: `${((compliantCount / expenses.length) * 100).toFixed(1)}%` },
-  ];
-  return createAdaptiveCard('Compliance Status Report', facts, compliantCount === expenses.length ? 'Success' : 'Attention');
+  try {
+    const expenses = await Expense.find().lean();
+    const policies = await Policy.find().lean();
+    const limitPolicy = policies.find(p => p.ruleName === 'Max Item Limit');
+    const compliantCount = expenses.filter(e => limitPolicy ? e.amount <= limitPolicy.threshold : true).length;
+    const facts = [
+      { label: 'Total Expenses', value: expenses.length.toString() },
+      { label: 'Compliant', value: compliantCount.toString() },
+      { label: 'Compliance Rate', value: expenses.length > 0 ? `${((compliantCount / expenses.length) * 100).toFixed(1)}%` : 'N/A' },
+    ];
+    return createAdaptiveCard('Compliance Status Report', facts, compliantCount === expenses.length ? 'Success' : 'Attention');
+  } catch (error) {
+    console.error('[ERROR] handleComplianceCheck:', error);
+    throw error;
+  }
 }
 
 async function handleAnomalyDetection() {
-  const expenses = await Expense.find().lean();
-  const avg = expenses.reduce((sum, e) => sum + e.amount, 0) / expenses.length;
-  const anomalies = expenses.filter(e => e.amount > avg * 1.5);
-  const facts = [
-    { label: 'Avg Expense', value: `$${avg.toFixed(2)}` },
-    { label: 'Anomalies Found', value: anomalies.length.toString() },
-    ...anomalies.map(a => ({ label: `Expense ${a._id.toString().slice(-4)}`, value: `$${a.amount} (High)` }))
-  ];
-  return createAdaptiveCard('Anomaly Detection Report', facts, anomalies.length > 0 ? 'Attention' : 'Success');
+  try {
+    const expenses = await Expense.find().lean();
+    
+    if (expenses.length === 0) {
+      return createAdaptiveCard('Anomaly Detection Report', [
+        { label: 'Status', value: 'No expenses to analyze' }
+      ]);
+    }
+
+    const avg = expenses.reduce((sum, e) => sum + e.amount, 0) / expenses.length;
+    const anomalies = expenses.filter(e => e.amount > avg * 1.5);
+    const facts = [
+      { label: 'Avg Expense', value: `$${avg.toFixed(2)}` },
+      { label: 'Anomalies Found', value: anomalies.length.toString() },
+      ...anomalies.slice(0, 5).map(a => ({ label: `Expense ${a._id.toString().slice(-4)}`, value: `$${a.amount} (High)` }))
+    ];
+    return createAdaptiveCard('Anomaly Detection Report', facts, anomalies.length > 0 ? 'Attention' : 'Success');
+  } catch (error) {
+    console.error('[ERROR] handleAnomalyDetection:', error);
+    throw error;
+  }
 }
 
 async function handleBudgetOptimization() {
-  const expenses = await Expense.find().lean();
-  const suggestion = await nvidiaClient.optimizeBudget(expenses);
-  return createAdaptiveCard('Budget Optimization (NVIDIA cuOpt)', [
-    { label: 'Current Status', value: 'Analyzed' },
-    { label: 'Recommendation', value: suggestion }
-  ], 'Success');
+  try {
+    const expenses = await Expense.find().lean();
+    const suggestion = await nvidiaClient.optimizeBudget(expenses);
+    return createAdaptiveCard('Budget Optimization (NVIDIA cuOpt)', [
+      { label: 'Current Status', value: 'Analyzed' },
+      { label: 'Recommendation', value: suggestion }
+    ], 'Success');
+  } catch (error) {
+    console.error('[ERROR] handleBudgetOptimization:', error);
+    throw error;
+  }
 }
 
 async function handleGenerateReport() {
-  const expenses = await Expense.find().lean();
-  const total = expenses.reduce((sum, e) => sum + e.amount, 0);
-  const facts = [
-    { label: 'Total Processed', value: expenses.length.toString() },
-    { label: 'Total Spend', value: `$${total.toFixed(2)}` },
-    { label: 'Status', value: 'Audit-Ready' }
-  ];
-  return createAdaptiveCard('Compliance Audit Report', facts, 'Success');
+  try {
+    const expenses = await Expense.find().lean();
+    const total = expenses.reduce((sum, e) => sum + e.amount, 0);
+    const facts = [
+      { label: 'Total Processed', value: expenses.length.toString() },
+      { label: 'Total Spend', value: `$${total.toFixed(2)}` },
+      { label: 'Status', value: 'Audit-Ready' }
+    ];
+    return createAdaptiveCard('Compliance Audit Report', facts, 'Success');
+  } catch (error) {
+    console.error('[ERROR] handleGenerateReport:', error);
+    throw error;
+  }
 }
 
 async function checkAndEmitViolation(expense) {
-  const policies = await Policy.find().lean();
-  const limitPolicy = policies.find(p => p.ruleName === 'Max Item Limit');
-  if (limitPolicy && expense.amount > limitPolicy.threshold) {
-    const citation = await nvidiaClient.queryRAG('amount limit', policies);
-    io.emit('compliance-alert', {
-      type: 'VIOLATION',
-      severity: limitPolicy.severity,
-      message: `High-risk expense detected: $${expense.amount} by ${expense.submitter}`,
-      citation: citation
-    });
+  try {
+    const policies = await Policy.find().lean();
+    const limitPolicy = policies.find(p => p.ruleName === 'Max Item Limit');
+    if (limitPolicy && expense.amount > limitPolicy.threshold) {
+      const citation = await nvidiaClient.queryRAG('amount limit', policies);
+      io.emit('compliance-alert', {
+        type: 'VIOLATION',
+        severity: limitPolicy.severity,
+        message: `High-risk expense detected: $${expense.amount} by ${expense.submitter}`,
+        citation: citation
+      });
+    }
+  } catch (error) {
+    console.error('[ERROR] checkAndEmitViolation:', error);
   }
 }
+
+app.use((err, req, res, next) => {
+  console.error('[UNHANDLED ERROR]', err);
+  res.status(500).json({ 
+    type: 'message', 
+    text: 'An internal server error occurred.',
+    error: process.env.NODE_ENV === 'production' ? undefined : err.message
+  });
+});
 
 server.listen(PORT, () => {
   console.log(`\n🚀 Finance Intelligence Agent (Production Grade) running on http://localhost:${PORT}`);
