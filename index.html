@@ -5,32 +5,128 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Finance Intelligence Agent</title>
   <style>
-    :root { color-scheme: light dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f6f7f9; color: #17202a; }
-    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: linear-gradient(135deg, rgba(8, 84, 110, 0.10), transparent 38%), linear-gradient(315deg, rgba(20, 121, 82, 0.12), transparent 40%), #f6f7f9; }
-    main { width: min(880px, calc(100vw - 32px)); display: grid; gap: 18px; }
-    section { background: rgba(255, 255, 255, 0.92); border: 1px solid #d8dee8; border-radius: 8px; box-shadow: 0 20px 60px rgba(30, 41, 59, 0.12); padding: 24px; }
-    h1 { margin: 0 0 8px; font-size: clamp(28px, 4vw, 44px); line-height: 1.05; }
-    p { margin: 0; color: #4b5563; line-height: 1.6; }
-    form { display: flex; gap: 10px; margin-top: 18px; }
-    input { flex: 1; border: 1px solid #cbd5e1; border-radius: 6px; padding: 12px 14px; font: inherit; background: white; color: #111827; }
-    button { border: 0; border-radius: 6px; padding: 12px 16px; font: inherit; font-weight: 700; background: #0f766e; color: white; cursor: pointer; }
-    button:disabled { opacity: 0.65; }
-    pre { min-height: 180px; max-height: 420px; overflow: auto; white-space: pre-wrap; word-break: break-word; background: #101828; color: #e5e7eb; border-radius: 8px; padding: 16px; margin: 0; font-size: 14px; line-height: 1.5; }
-    .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
-    .chips button { background: #e7f5f2; color: #115e59; border: 1px solid #b6e1d9; font-weight: 650; padding: 8px 10px; }
-    @media (max-width: 640px) { body { place-items: start center; padding: 16px 0; } section { padding: 18px; } form { flex-direction: column; } button { width: 100%; } }
+    :root {
+      color-scheme: light dark;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f6f7f9;
+      color: #17202a;
+    }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      background:
+        linear-gradient(135deg, rgba(8, 84, 110, 0.10), transparent 38%),
+        linear-gradient(315deg, rgba(20, 121, 82, 0.12), transparent 40%),
+        #f6f7f9;
+    }
+    main {
+      width: min(880px, calc(100vw - 32px));
+      display: grid;
+      gap: 18px;
+    }
+    section {
+      background: rgba(255, 255, 255, 0.92);
+      border: 1px solid #d8dee8;
+      border-radius: 8px;
+      box-shadow: 0 20px 60px rgba(30, 41, 59, 0.12);
+      padding: 24px;
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: clamp(28px, 4vw, 44px);
+      line-height: 1.05;
+      letter-spacing: 0;
+    }
+    p {
+      margin: 0;
+      color: #4b5563;
+      line-height: 1.6;
+    }
+    form {
+      display: flex;
+      gap: 10px;
+      margin-top: 18px;
+    }
+    input {
+      flex: 1;
+      min-width: 0;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      padding: 12px 14px;
+      font: inherit;
+      background: white;
+      color: #111827;
+    }
+    button {
+      border: 0;
+      border-radius: 6px;
+      padding: 12px 16px;
+      font: inherit;
+      font-weight: 700;
+      background: #0f766e;
+      color: white;
+      cursor: pointer;
+    }
+    button:disabled {
+      cursor: wait;
+      opacity: 0.65;
+    }
+    pre {
+      min-height: 180px;
+      max-height: 420px;
+      overflow: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+      background: #101828;
+      color: #e5e7eb;
+      border-radius: 8px;
+      padding: 16px;
+      margin: 0;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    .chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 14px;
+    }
+    .chips button {
+      background: #e7f5f2;
+      color: #115e59;
+      border: 1px solid #b6e1d9;
+      font-weight: 650;
+      padding: 8px 10px;
+    }
+    @media (max-width: 640px) {
+      body {
+        place-items: start center;
+        padding: 16px 0;
+      }
+      section {
+        padding: 18px;
+      }
+      form {
+        flex-direction: column;
+      }
+      button {
+        width: 100%;
+      }
+    }
   </style>
 </head>
 <body>
   <main>
     <section>
       <h1>Finance Intelligence Agent</h1>
-      <p>Send a finance or compliance command to the agent.</p>
+      <p>Send a finance or compliance command to the local agent API.</p>
       <form id="message-form">
-        <input id="message-input" type="text" value="review expense reports" required>
+        <input id="message-input" type="text" placeholder="Enter command..." value="review expense reports" autocomplete="off" required>
         <button id="send-button" type="submit">Send</button>
       </form>
-      <div class="chips">
+      <div class="chips" aria-label="Example commands">
         <button type="button" data-command="review expense reports">Review expenses</button>
         <button type="button" data-command="check policy compliance">Compliance</button>
         <button type="button" data-command="identify spending anomalies">Anomalies</button>
@@ -55,25 +151,29 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ text })
         });
-        if (!response.ok) throw new Error(`Server error: ${response.status}`);
+        
+        if (!response.ok) {
+          throw new Error(`Server error: ${response.status} ${response.statusText}`);
+        }
+        
         const data = await response.json();
         output.textContent = JSON.stringify(data, null, 2);
       } catch (error) {
-        output.textContent = `Error: ${error.message}`;
+        output.textContent = `❌ Error: ${error.message}`;
       } finally {
         sendButton.disabled = false;
       }
     }
 
-    form.addEventListener('submit', (e) => {
-      e.preventDefault();
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
       sendMessage(input.value.trim());
     });
 
-    document.querySelectorAll('[data-command]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        input.value = btn.dataset.command;
-        sendMessage(btn.dataset.command);
+    document.querySelectorAll('[data-command]').forEach((button) => {
+      button.addEventListener('click', () => {
+        input.value = button.dataset.command;
+        sendMessage(button.dataset.command);
       });
     });
   </script>
